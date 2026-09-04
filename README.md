@@ -42,10 +42,10 @@ Go to **Setup > Hardware** in Domoticz, add a **Dummy (Does nothing)** hardware 
 
 ## Installation & Configuration
 
-1. Clone this repository into your preferred folder (e.g., `/anker_script`):
+1. Clone this repository into your preferred folder and navigate into it:
    ```bash
-   git clone https://github.com /anker_script
-   cd /anker_script
+   git clone https://github.com
+   cd Anker_Solix_AC_Pro-Domoticz
    ```
 
 2. Create a clean isolated virtual environment and install dependencies:
