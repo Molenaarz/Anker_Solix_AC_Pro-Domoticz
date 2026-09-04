@@ -33,8 +33,8 @@ Go to **Setup > Hardware** in Domoticz, add a **Dummy (Does nothing)** hardware 
 | `Anker Grid Voltage` | **Voltage** | Monitors grid wisselspanning (~230V) |
 | `Anker Battery SOH` | **Percentage** | Tracks battery cell health degradation over time |
 | `Anker System Temp` | **Temperature** | Internal device temperature |
-| `Anker Total Charged` | **Counter (Teller)** | Cumulative charging. Set Type to *Energy* and Axis to *kWh* in sensor edit settings |
-| `Anker Total Discharged`| **Counter (Teller)** | Cumulative discharging. Set Type to *Energy* and Axis to *kWh* in sensor edit settings |
+| `Anker Total Charged` | **Incremental Counter** | **Crucial:** Tracks cumulative charging in Wh without chart errors |
+| `Anker Total Discharged`| **Incremental Counter** | **Crucial:** Tracks cumulative discharging in Wh without chart errors |
 
 *Note all the **IDX** numbers of these new sensors from the **Setup > Devices** list.*
 
