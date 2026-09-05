@@ -7,7 +7,7 @@ from pymodbus.client import ModbusTcpClient
 try:
     import config
 except ImportError:
-    print("Fout: config.py niet gevonden! Maak deze aan op basis van het voorbeeld.")
+    print("Fout: config.py niet gevonden! Zorg dat deze in dezelfde map staat.")
     exit(1)
 
 def read_modbus_register(client, address, count=1):
@@ -31,6 +31,8 @@ def read_anker_data(client):
         pv_val = read_modbus_register(client, address=10012, count=1)
         volt_val = read_modbus_register(client, address=10101, count=1)
         temp_val = read_modbus_register(client, address=10053, count=1)
+        
+        # 32-bit batterijvermogen opvragen (2 registers)
         pwr_reg = read_modbus_register(client, address=10254, count=2)
 
         if soc_val is None or pwr_reg is None:
@@ -41,35 +43,44 @@ def read_anker_data(client):
         soh = soh_val if (soh_val is not None and soh_val <= 100) else 100
         pv_power = pv_val if pv_val is not None else 0
         
-        # 32-bit Signed Integer voor het batterijvermogen
+        # 100% Veilige native Python 32-bit signed integer conversie (onafhankelijk van pymodbus-versie)
         if isinstance(pwr_reg, list) and len(pwr_reg) >= 2:
             raw_pwr_bytes = struct.pack('>HH', pwr_reg[0], pwr_reg[1])
             bruto_power = struct.unpack('>i', raw_pwr_bytes)[0]
         else:
             bruto_power = 0
+            
+        # Filter extreme bit-ruis / spook-wattages weg als de accu in stand-by zweeft
+        if abs(bruto_power) > 6000:
+            bruto_power = 0
         
-        # Netto AC vermogen naar huis (gladgestreken voor inverter overhead)
+        # Netto AC vermogen naar huis (gladgestreken voor inverter efficiëntie)
         netto_ac = int(bruto_power * 0.82) if bruto_power < 0 else bruto_power
 
-        # Netspanning formatteren
+        # Netspanning berekenen
         if volt_val is not None and volt_val > 1000 and volt_val < 3000:
             grid_volt = round(volt_val / 10.0, 1)
         else:
             grid_volt = 230.0
 
-        # Temperatuur formatteren
+        # Temperatuur berekenen
         if temp_val is not None and temp_val > 0:
             device_temp = round(temp_val / 10.0, 1) if temp_val > 100 else float(temp_val)
         else:
             device_temp = 20.0
 
-        # Laad- en ontlaadwatts splitsen voor de Domoticz-tellers
+        # Energie-omrekening in Watturen (Wh) voor de Incremental Counter
+        time_factor = config.INTERVAL / 3600.0
+        
         charge_w = bruto_power if bruto_power > 0 else 0
         discharge_w = abs(bruto_power) if bruto_power < 0 else 0
-
-        print(f"[{time.strftime('%X')}] SoC: {soc}% | SOH: {soh}% | Temp: {device_temp}°C | Netto: {netto_ac}W | Netspanning: {grid_volt}V")
         
-        # Gegevens verzenden naar Domoticz op basis van config
+        inc_charge_wh = charge_w * time_factor
+        inc_discharge_wh = discharge_w * time_factor
+
+        print(f"[{time.strftime('%X')}] SoC: {soc}% | Netto: {netto_ac}W | +Inc_Chg: {round(inc_charge_wh, 4)}Wh | -Inc_Dis: {round(inc_discharge_wh, 4)}Wh")
+        
+        # Data verzenden naar Domoticz op basis van config
         send_to_domoticz(config.IDX_BATTERY_SOC, soc)
         send_to_domoticz(config.IDX_PV_POWER, pv_power)
         send_to_domoticz(config.IDX_BATTERY_POWER, netto_ac)
@@ -77,8 +88,8 @@ def read_anker_data(client):
         
         if config.IDX_BATTERY_SOH: send_to_domoticz(config.IDX_BATTERY_SOH, soh)
         if config.IDX_TEMPERATURE: send_to_domoticz(config.IDX_TEMPERATURE, device_temp)
-        if config.IDX_TOTAL_CHARGE: send_to_domoticz(config.IDX_TOTAL_CHARGE, charge_w)
-        if config.IDX_TOTAL_DISCHARGE: send_to_domoticz(config.IDX_TOTAL_DISCHARGE, discharge_w)
+        if config.IDX_TOTAL_CHARGE: send_to_domoticz(config.IDX_TOTAL_CHARGE, inc_charge_wh)
+        if config.IDX_TOTAL_DISCHARGE: send_to_domoticz(config.IDX_TOTAL_DISCHARGE, inc_discharge_wh)
             
     except Exception as e:
         print(f"Fout tijdens verwerken van de Modbus-data: {e}")
@@ -86,9 +97,13 @@ def read_anker_data(client):
 def send_to_domoticz(idx, value):
     if idx is None:
         return
-    svalue = str(value)
+    
     if idx == config.IDX_BATTERY_POWER:
         svalue = f"{value};0"
+    elif idx in [config.IDX_TOTAL_CHARGE, config.IDX_TOTAL_DISCHARGE]:
+        svalue = f"{round(value, 4)}"
+    else:
+        svalue = str(value)
 
     url = f"{config.DOMOTICZ_IP}/json.htm?type=command&param=udevice&idx={idx}&nvalue=0&svalue={svalue}"
     try:
@@ -104,10 +119,8 @@ if __name__ == "__main__":
         while True:
             if not client.is_socket_open():
                 client.connect()
-                
             read_anker_data(client)
             time.sleep(config.INTERVAL)
-            
     except KeyboardInterrupt:
         print("\nService handmatig gestopt.")
     finally:
